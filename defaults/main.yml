@@ -1,0 +1,8 @@
+strongswan_user: strongswan
+strongswan_group: strongswan
+strongswan_log_dir: /var/log/strongswan
+strongswan_db_dir: "{{ __strongswan_db_dir }}"
+strongswan_service: strongswan
+strongswan_conf_dir: "{{ __strongswan_conf_dir }}"
+strongswan_conf_file: "{{ __strongswan_conf_dir }}/strongswan.conf"
+strongswan_flags: ""

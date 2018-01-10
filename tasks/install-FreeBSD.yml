@@ -1,0 +1,6 @@
+---
+
+- name: Install strongswan
+  pkgng:
+    name: strongswan
+    state: present

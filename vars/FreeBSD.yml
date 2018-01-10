@@ -1,0 +1,2 @@
+__strongswan_db_dir: /var/db/strongswan
+__strongswan_conf_dir: /usr/local/etc/strongswan

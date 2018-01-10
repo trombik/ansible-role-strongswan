@@ -1,0 +1,37 @@
+---
+# tasks file for ansible-role-strongswan
+
+- include_vars: "{{ ansible_os_family }}.yml"
+
+- include: "install-{{ ansible_os_family }}.yml"
+
+- name: Create log directory
+  file:
+    path: "{{ strongswan_log_dir }}"
+    mode: 0755
+    owner: "{{ strongswan_user }}"
+    group: "{{ strongswan_group }}"
+    state: directory
+  notify: Restart strongswan
+
+- name: Create db directory
+  file:
+    path: "{{ strongswan_db_dir }}"
+    mode: 0755
+    owner: "{{ strongswan_user }}"
+    group: "{{ strongswan_group }}"
+    state: directory
+  notify: Restart strongswan
+
+- name: Create strongswan.conf
+  template:
+    src: strongswan.conf.j2
+    dest: "{{ strongswan_conf_file }}"
+    validate: echo %s
+  notify: Restart strongswan
+
+- name: Start strongswan
+  service:
+    name: "{{ strongswan_service }}"
+    enabled: true
+    state: started
