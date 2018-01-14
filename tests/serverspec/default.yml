@@ -2,4 +2,62 @@
   roles:
     - ansible-role-strongswan
   vars:
-    strongswan_config: ""
+    strongswan_log_dir: /var/log/strongswan
+    strongswan_ipsec_secrets:
+      no_log: no
+      path: "{{ strongswan_conf_d_dir }}/ipsec.secrets"
+      owner: daemon
+      group: daemon
+      mode: "0640"
+      content: |
+        192.168.0.1 : PSK "v+NkxY9LLZvwj4qCC2o/gGrWDF2d21jL"
+        192.168.0.2 : PSK "v+NkxY9LLZvwj4qCC2o/gGrWDF2d21jL"
+    strongswan_config_fragments:
+      - name: empty
+        path: "{{ strongswan_conf_d_dir }}/empty.conf"
+        mode: "0640"
+        owner: daemon
+        group: daemon
+        no_log: no
+        content: |
+          # intentinally empty
+      - name: charon-logging.conf
+        content: |
+          charon {
+            syslog {
+              daemon {
+                default = 2
+              }
+              auth {
+                default = 2
+              }
+            }
+          }
+    strongswan_config: |
+      charon {
+        load_modular = yes
+        plugins {
+          include {{ strongswan_conf_d_dir }}/charon/*.conf
+        }
+      }
+      include strongswan.d/*.conf
+    strongswan_ipsec_config: |
+      config setup
+
+      conn %default
+        ikelifetime=60m
+        keylife=20m
+        rekeymargin=3m
+        keyingtries=1
+        keyexchange=ikev2
+
+      conn rw-eap
+        left={{ ansible_default_ipv4.address }}
+        leftsubnet=172.16.0.0/24
+        leftcert=moonCert.pem
+        leftauth=eap-peap
+        leftfirewall=yes
+        rightauth=eap-peap
+        rightsendcert=never
+        right=%any
+        auto=add

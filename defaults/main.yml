@@ -1,8 +1,14 @@
-strongswan_user: strongswan
-strongswan_group: strongswan
-strongswan_log_dir: /var/log/strongswan
-strongswan_db_dir: "{{ __strongswan_db_dir }}"
+strongswan_user: "{{ __strongswan_user }}"
+strongswan_group: "{{ __strongswan_group }}"
+strongswan_package: "{{ __strongswan_package }}"
+strongswan_extra_packages: []
+strongswan_log_dir: ""
 strongswan_service: strongswan
 strongswan_conf_dir: "{{ __strongswan_conf_dir }}"
 strongswan_conf_file: "{{ __strongswan_conf_dir }}/strongswan.conf"
-strongswan_flags: ""
+strongswan_conf_d_dir: "{{ __strongswan_conf_dir }}/strongswan.d"
+
+strongswan_config: ""
+strongswan_ipsec_config: ""
+strongswan_ipsec_secrets: {}
+strongswan_config_fragments: []

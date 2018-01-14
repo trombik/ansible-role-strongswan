@@ -3,7 +3,7 @@
 
 - include_vars: "{{ ansible_os_family }}.yml"
 
-- include: "install-{{ ansible_os_family }}.yml"
+- include_tasks: "install-{{ ansible_os_family }}.yml"
 
 - name: Create log directory
   file:
@@ -13,25 +13,47 @@
     group: "{{ strongswan_group }}"
     state: directory
   notify: Restart strongswan
+  when:
+    - strongswan_log_dir is defined
+    - strongswan_log_dir | length > 0
 
-- name: Create db directory
-  file:
-    path: "{{ strongswan_db_dir }}"
-    mode: 0755
-    owner: "{{ strongswan_user }}"
-    group: "{{ strongswan_group }}"
-    state: directory
-  notify: Restart strongswan
+- name: Assert strongswan_config_fragments has valid structure
+  assert:
+    that:
+      - "'name' in item and 'content' in item"
+  with_items: "{{ strongswan_config_fragments }}"
+
+- name: Create strongswan_config_fragments
+  template:
+    src: fragment.j2
+    owner: "{% if 'owner' in item %}{{ item.owner }}{% else %}{{ omit }}{% endif %}"
+    group: "{% if 'group' in item %}{{ item.group }}{% else %}{{ omit }}{% endif %}"
+    mode: "{% if 'mode' in item %}{{ item.mode }}{% else %}{{ omit }}{% endif %}"
+    dest: "{% if 'path' in item and item.path | length > 0 %}{{ item.path }}{% else %}{{ strongswan_conf_d_dir }}/{{ item.name }}{% endif %}"
+  with_items: "{{ strongswan_config_fragments }}"
 
 - name: Create strongswan.conf
   template:
     src: strongswan.conf.j2
     dest: "{{ strongswan_conf_file }}"
-    validate: echo %s
   notify: Restart strongswan
+
+- name: Create ipsec.conf
+  template:
+    src: ipsec.conf.j2
+    dest: "{{ strongswan_conf_dir }}/ipsec.conf"
+  notify: Restart strongswan
+
+- name: Create ipsec.secrets
+  template:
+    src: ipsec.secrets.j2
+    dest: "{{ strongswan_ipsec_secrets['path'] | default(strongswan_conf_dir + '/ipsec.secrets') }}"
+    owner: "{{ strongswan_ipsec_secrets.owner | default(omit) }}"
+    group: "{{ strongswan_ipsec_secrets.group | default(omit) }}"
+    mode: "{{ strongswan_ipsec_secrets.mode | default('0644') }}"
+  no_log: "{{ strongswan_ipsec_secrets['no_log'] | default('yes') }}"
 
 - name: Start strongswan
   service:
     name: "{{ strongswan_service }}"
-    enabled: true
     state: started

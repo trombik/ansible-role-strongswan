@@ -1,0 +1,170 @@
+---
+- hosts: server
+  become: yes
+  become_method: sudo
+  environment:
+    http_proxy: "{{ http_proxy | default() }}"
+    https_proxy: "{{ https_proxy | default() }}"
+    no_proxy: "{{ no_proxy | default() }}"
+
+  pre_tasks:
+  roles:
+    - trombik.sysctl
+    - trombik.x509-certificate
+    - trombik.ipfw
+    - ansible-role-strongswan
+  vars:
+    sysctl:
+      net.inet.ip.forwarding: 1
+    ipfw_rules: |
+      fwcmd="/sbin/ipfw"
+      ${fwcmd} -f flush
+      ${fwcmd} nat 100 config if {{ ansible_default_ipv4.interface }}
+      ${fwcmd} check-state
+      ${fwcmd} add nat 100 all from any to any via em0 in
+      ${fwcmd} add nat 100 all from 172.16.0.0/24 to not {{ ansible_default_ipv4.address }} via {{ ansible_default_ipv4.interface }}  out
+      ${fwcmd} add 65000 pass all from any to any keep-state
+      ${fwcmd} add 65001 deny log all from any to any
+
+    strongswan_ipsec_secrets:
+      no_log: no
+      mode: "0600"
+      content: |
+        : RSA server.pem
+        carol@strongswan.org : EAP "Ar3etTnp"
+    strongswan_config_fragments:
+      - name: charon-logging.conf
+        content: |
+          charon {
+            syslog {
+              daemon {
+                default = 2
+              }
+              auth {
+                default = 2
+              }
+            }
+          }
+    strongswan_config: |
+      # example from:
+      # https://wiki.strongswan.org/projects/strongswan/wiki/Win7EapMultipleConfig
+      charon {
+        load_modular = yes
+        plugins {
+          include strongswan.d/charon/*.conf
+          eap-peap {
+            phase2_method = mschapv2
+          }
+        }
+        multiple_authentication=no
+      }
+    strongswan_ipsec_config: |
+      config setup
+        # allow multiple tunnles with same ID
+        uniqueids=keep
+
+      conn %default
+        keyexchange=ikev2
+        ike=aes256-sha1-modp1024!
+        esp=aes256-sha1!
+        dpdaction=clear
+        dpddelay=300s
+        rekey=no
+
+      conn vpn
+        left=192.168.21.200
+        leftsubnet=0.0.0.0/0
+        leftauth=pubkey
+        leftcert=server.pem
+        leftid=@server1.virtualbox.trombik.org
+        right=%any
+        rightsourceip=172.16.0.110-172.16.0.120
+        rightauth=eap-mschapv2
+        rightsendcert=never   # see note
+        eap_identity=%any
+        rightdns=8.8.8.8,8.8.4.4
+        auto=add
+    x509_certificate:
+      # for how these keys are generated, see:
+      # https://wiki.strongswan.org/projects/strongswan/wiki/SimpleCA
+      - name: ca
+        state: present
+        public:
+          path: /usr/local/etc/ipsec.d/cacerts/ca.pem
+          key: |
+            -----BEGIN CERTIFICATE-----
+            MIIDODCCAiCgAwIBAgIIF0keMFv+HccwDQYJKoZIhvcNAQELBQAwOjELMAkGA1UE
+            BhMCQ0gxEzARBgNVBAoTCnN0cm9uZ1N3YW4xFjAUBgNVBAMTDXN0cm9uZ1N3YW4g
+            Q0EwHhcNMTgwMTExMTI0NDMwWhcNMjEwMTEwMTI0NDMwWjA6MQswCQYDVQQGEwJD
+            SDETMBEGA1UEChMKc3Ryb25nU3dhbjEWMBQGA1UEAxMNc3Ryb25nU3dhbiBDQTCC
+            ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAOH0eYDgKyMn93nQC2Wp15a1
+            BlmXj3LJ2jT0jXUQjyaTPdEg8YIXHTMhAJ1+1+5pIVi80ci2k4XTaYcMOJyRxRYW
+            3vTjRJc0FSCk8eCJlqYWhrWpvCBvsxAywanp8jXqGCrLEOk7HUK1X0PA8bQuw2Jj
+            n8CCotqHjcZwEya2tI3pqf2cVF99OgIsoDPZGIAu0zZvMUnseQ73KJ29dMRn4QMn
+            Nbas1VlArehzh8nDPnKE6YE86aRcu0pkUCz+unFO9fFqWBdFuAE+PT77eDx/goPv
+            /PrPeMZfvrf5enmW1j2/cllRcrSP0GmWxMMGei+4xRF1dUhISvNz7i9NLYztfjUC
+            AwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0O
+            BBYEFDWKhp71Us+J0zhfXX+9eXBEXFclMA0GCSqGSIb3DQEBCwUAA4IBAQDaZb/g
+            hTme/VrHDOzdW5IvPDPOm+4M/mgdCujoW+yDZ6ZYMY2QBzaQbL6S94ygcFTmciNG
+            WSgCi6XEYnMlHFjzg9RqwFp1Z7ozOLFLUV23uoGHo6y3z+nzkqh7Os6QuvgFnFZK
+            m4uOlXeX+9skeEQyk/+clGsD42SQiTFTph04gD1NEfsIElEIrNmGoHqB1Mlvucqg
+            Oi6bwZNXl0iOgfm7ppwIovYdqxxo3PU8DL9pJYLwTRuOYwwci0g4gjAVdrtePvac
+            pEJuFIUYorP8Sp0gPDIztkptQ4Q6EII80hBSlM8s8JiK+neh4AWQYIQydL90qWkw
+            zFkrCmfXE0xU0cUM
+            -----END CERTIFICATE-----
+      - name: server
+        state: present
+        secret:
+          path: /usr/local/etc/ipsec.d/private/server.pem
+          key: |
+            -----BEGIN RSA PRIVATE KEY-----
+            MIIEowIBAAKCAQEAx9X/aipFmBfz9nRiW6ar/DZLw9ik5LbQGd5QnSE6aazz+2Xy
+            qYIAo5x8davsVcw5ZRXPW3K0GBuXiimAIZ7B8wWQuC/ZNcJVgyIgPkhQGUsmgZ53
+            30Q4cT2I47LTZxqZCIoMcFr95a68W4cGc3vzYa9RYRQ9UxB5JShZjRDKKoTKsx2P
+            0GHS7fxBQPaHC7WuN8RrDa/tgazQ50TaUd0TweHKrfvQA+kCULfPE76YNL0Flgln
+            +XtKutjG8K72vhqFuc5lrZ+0Uu2sSRKi3LGRpsACX8/wlqN9hqt3Z6msDkbDsYhT
+            FFLvZ/EhWxSKN9h50iS7Kxkd4tKeEsyWJ2m6VwIDAQABAoIBACKoRIG/Dw7PqKnn
+            iV9nypAVQpKWshJQekriOYzmxGCrdCz3g1xOhZnae+NUi8pdft6/J5UukXlU37VA
+            eU5bYDurjWvEMKGYMIhrlLf4hpu8YtM8DoIULM3G5ETJMMzC2iOW/Y1G2p3I7jXZ
+            dw70QkOAylZR0kjjpH8DPnSuosE4s9hLFX5N203dUGVHyWGUkX63puR+x34exWWa
+            4S3o0rakJG/WNo6sInVZYyTMCVxXJQ2YUSYfMi6TzE6wVNpOEs6iiarr6uv6MY5/
+            FlNj4B+09U0p2/WTiyfR8uABmE4uN1SD8xRRod4Oxd07YyQRPC/Dx3wgPdMX0tak
+            JetkUDECgYEA9BfZILPBi3u24Yl3nkjZpPUQGbh6dCceEQuIV5kW/b6Z/FYuLILg
+            sN7Do/opF5xPo/K0/KRvpRLwtxRUwvj+XF7gr5O6J0ja9jFKm0rUZs20C+ilI/7w
+            OhvtAamjGxur/luVuLJTxm2gRiC2a+xS1YT/dstsmW7a9vOhqvUjWTsCgYEA0ZV6
+            /YSbvPq0DC/bMeLYALfBNbdIZNZW/hq0kJQPiwLPjWLev14yJBhE+I2wB/9B4UiT
+            MpBGJ+QLUEQ3KpDs1miMIi4hyCSUl1sFf+xyu66iK6mu8NKh52aqN+Tvc0RaOuQW
+            BNJqxbO2nlMo//2sST1VwRCfi4pRhbtSdQEfsZUCgYEAg5oQAKep5BARa8v36CkS
+            3vMZeSSTMOieN0ZmfgQV9zy6POgiAPGXPwT7qf8IBKjL73K9zbDCWNe7XJnjkTM5
+            wIeO0FrvdJq9Ixs0REG1/q9NMVZ/IscisdG4mLrjK4xh0MOEF45dyI/2Z5jfgZRq
+            nKAWM/A9XwP7nkWAlnGQW10CgYAgn0zSk0aOhtNppjVPMYj/q5qGWu4IzBgkW1HJ
+            w1IcCCb4UfBsByR029Y4fg1tYT0G7P4Ee9J/uQ5NwyB3HrHOud0+IMIfXhpG6OMV
+            Q1+keQ1DEJlrYM3Ur/VE1/yxi20kB4ap33rBJTUCtd0G45xilgp4D7dVyATidQLj
+            tXYSdQKBgCfgqZC44w2Z9z2P5lpNa8+q8T/SYPYl0pcr+53A2KXshG4JLVrpaTgK
+            7LI8Y5LsdvawunsOiGhI58Q1MUWtUmCVxvX0/7Ma+N1YCQXKzbY+gDVyjNsmoNgy
+            6HD1u3rPM1ESMv68bWvL05k7c6JvLIMNhsFTllQNPv9QHbqMjauG
+            -----END RSA PRIVATE KEY-----
+        public:
+          path: /usr/local/etc/ipsec.d/certs/server.pem
+          key: |
+            -----BEGIN CERTIFICATE-----
+            MIIDVTCCAj2gAwIBAgIIGpeX6JE0N6cwDQYJKoZIhvcNAQELBQAwOjELMAkGA1UE
+            BhMCQ0gxEzARBgNVBAoTCnN0cm9uZ1N3YW4xFjAUBgNVBAMTDXN0cm9uZ1N3YW4g
+            Q0EwHhcNMTgwMTExMTI0NzE3WhcNMjEwMTEwMTI0NzE3WjBLMQswCQYDVQQGEwJD
+            SDETMBEGA1UEChMKc3Ryb25nU3dhbjEnMCUGA1UEAxMec2VydmVyMS52aXJ0dWFs
+            Ym94LnRyb21iaWsub3JnMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA
+            x9X/aipFmBfz9nRiW6ar/DZLw9ik5LbQGd5QnSE6aazz+2XyqYIAo5x8davsVcw5
+            ZRXPW3K0GBuXiimAIZ7B8wWQuC/ZNcJVgyIgPkhQGUsmgZ5330Q4cT2I47LTZxqZ
+            CIoMcFr95a68W4cGc3vzYa9RYRQ9UxB5JShZjRDKKoTKsx2P0GHS7fxBQPaHC7Wu
+            N8RrDa/tgazQ50TaUd0TweHKrfvQA+kCULfPE76YNL0Flgln+XtKutjG8K72vhqF
+            uc5lrZ+0Uu2sSRKi3LGRpsACX8/wlqN9hqt3Z6msDkbDsYhTFFLvZ/EhWxSKN9h5
+            0iS7Kxkd4tKeEsyWJ2m6VwIDAQABo04wTDAfBgNVHSMEGDAWgBQ1ioae9VLPidM4
+            X11/vXlwRFxXJTApBgNVHREEIjAggh5zZXJ2ZXIxLnZpcnR1YWxib3gudHJvbWJp
+            ay5vcmcwDQYJKoZIhvcNAQELBQADggEBAFERPsYz/xM7k8tWGsuEVyXxvSSqpAnf
+            kaTBT/jbyM5V3jR342dyOgGVvYr2GR9IdN9/wityPylTZYQ1Q6mmRzDU0ctxZh8V
+            5WEFsi+mRKtJ/kyZjXfMXCIrIn6zV7Qw+6NSbPTu0tuIJRMioZVWzvwILQ+jKYNX
+            BCxpF6XPpwwFmn1O52/S/URYHlJMYlPSzDKc/lLVNB39pAFJUpWhLTO4BcKWpFM0
+            4D+vercnJstXQZwphXuUEwztqbNlN63AAEzOMeQoHtvIg5hbwIfFjETtxSBfgw4v
+            Zx4NpZSQeao8+5A7RvXznKNib3jQJ8ZT5ixQczSaIEvuF2fduAVnxYU=
+            -----END CERTIFICATE-----
+

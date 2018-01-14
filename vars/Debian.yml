@@ -1,0 +1,4 @@
+__strongswan_user: strongswan
+__strongswan_group: nogroup
+__strongswan_conf_dir: /etc
+__strongswan_package: strongswan

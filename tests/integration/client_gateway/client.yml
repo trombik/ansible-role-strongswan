@@ -1,0 +1,107 @@
+---
+- hosts: client
+  become: yes
+  become_method: sudo
+  environment:
+    http_proxy: "{{ http_proxy | default() }}"
+    https_proxy: "{{ https_proxy | default() }}"
+    no_proxy: "{{ no_proxy | default() }}"
+
+  pre_tasks:
+  roles:
+    - trombik.hosts
+    - trombik.x509-certificate
+    - ansible-role-strongswan
+  vars:
+    hosts_map:
+      192.168.21.200:
+        - server1.virtualbox.trombik.org
+    strongswan_extra_packages: "{% if ansible_os_family == 'Debian' %}[ 'strongswan-plugin-eap-mschapv2' ]{% else %}[]{% endif %}"
+    strongswan_config_fragments:
+      - name: charon-logging.conf
+        content: |
+          charon {
+            syslog {
+              daemon {
+                default = 2
+              }
+              auth {
+                default = 2
+              }
+            }
+          }
+    strongswan_config: |
+      charon {
+        multiple_authentication=no
+        load_modular = yes
+        plugins {
+          include strongswan.d/charon/*.conf
+          eap-peap {
+            phase2_method = mschapv2
+          }
+        }
+      }
+    strongswan_ipsec_secrets:
+      no_log: no
+      mode: "0600"
+      content: |
+        carol@strongswan.org : EAP "Ar3etTnp"
+    strongswan_ipsec_config: |
+      config setup
+
+      conn %default
+        ikelifetime=60m
+        keylife=20m
+        rekeymargin=3m
+        keyingtries=1
+        keyexchange=ikev2
+
+      conn vpn
+          # my address is not static
+          left=%any
+          # authenticate me with EAP-MSCHAPv2
+          leftauth=eap-mschapv2
+          # use this EAP user name when the gateway authenticates me
+          eap_identity=carol@strongswan.org
+          # assigned by the gateway
+          leftsourceip=%config
+          leftfirewall=yes
+          # assigned by the gateway
+          leftdns=%config4
+          # gateway address
+          right=server1.virtualbox.trombik.org
+          # ask the gateway to send its cert
+          rightsendcert=yes
+          # authenticate the gateway with pubkey
+          rightauth=pubkey
+          # ... using this CA
+          rightca="C=CH, O=strongSwan, CN=strongSwan CA"
+          # tunnel all traffic thorough VPN
+          rightsubnet=0.0.0.0/0
+          auto=add
+    x509_certificate:
+      - name: ca
+        state: present
+        public:
+          path: "{% if ansible_os_family == 'FreeBSD' %}/usr/local{% endif %}/etc/ipsec.d/cacerts/ca.pem"
+          key: |
+            -----BEGIN CERTIFICATE-----
+            MIIDODCCAiCgAwIBAgIIF0keMFv+HccwDQYJKoZIhvcNAQELBQAwOjELMAkGA1UE
+            BhMCQ0gxEzARBgNVBAoTCnN0cm9uZ1N3YW4xFjAUBgNVBAMTDXN0cm9uZ1N3YW4g
+            Q0EwHhcNMTgwMTExMTI0NDMwWhcNMjEwMTEwMTI0NDMwWjA6MQswCQYDVQQGEwJD
+            SDETMBEGA1UEChMKc3Ryb25nU3dhbjEWMBQGA1UEAxMNc3Ryb25nU3dhbiBDQTCC
+            ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAOH0eYDgKyMn93nQC2Wp15a1
+            BlmXj3LJ2jT0jXUQjyaTPdEg8YIXHTMhAJ1+1+5pIVi80ci2k4XTaYcMOJyRxRYW
+            3vTjRJc0FSCk8eCJlqYWhrWpvCBvsxAywanp8jXqGCrLEOk7HUK1X0PA8bQuw2Jj
+            n8CCotqHjcZwEya2tI3pqf2cVF99OgIsoDPZGIAu0zZvMUnseQ73KJ29dMRn4QMn
+            Nbas1VlArehzh8nDPnKE6YE86aRcu0pkUCz+unFO9fFqWBdFuAE+PT77eDx/goPv
+            /PrPeMZfvrf5enmW1j2/cllRcrSP0GmWxMMGei+4xRF1dUhISvNz7i9NLYztfjUC
+            AwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0O
+            BBYEFDWKhp71Us+J0zhfXX+9eXBEXFclMA0GCSqGSIb3DQEBCwUAA4IBAQDaZb/g
+            hTme/VrHDOzdW5IvPDPOm+4M/mgdCujoW+yDZ6ZYMY2QBzaQbL6S94ygcFTmciNG
+            WSgCi6XEYnMlHFjzg9RqwFp1Z7ozOLFLUV23uoGHo6y3z+nzkqh7Os6QuvgFnFZK
+            m4uOlXeX+9skeEQyk/+clGsD42SQiTFTph04gD1NEfsIElEIrNmGoHqB1Mlvucqg
+            Oi6bwZNXl0iOgfm7ppwIovYdqxxo3PU8DL9pJYLwTRuOYwwci0g4gjAVdrtePvac
+            pEJuFIUYorP8Sp0gPDIztkptQ4Q6EII80hBSlM8s8JiK+neh4AWQYIQydL90qWkw
+            zFkrCmfXE0xU0cUM
+            -----END CERTIFICATE-----

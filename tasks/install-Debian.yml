@@ -1,7 +1,7 @@
 ---
 
 - name: Install strongswan
-  pkgng:
+  apt:
     name: "{{ strongswan_package }}"
     state: present
 
@@ -11,7 +11,7 @@
     enabled: yes
 
 - name: Install strongswan_extra_packages
-  pkgng:
+  apt:
     name: "{{ item }}"
     state: present
   with_items: "{{ strongswan_extra_packages }}"
